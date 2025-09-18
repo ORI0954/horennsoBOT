@@ -1,12 +1,3 @@
-<<<<<<< HEAD
-const { Client, GatewayIntentBits } = require('discord.js');
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-
-client.once('ready', () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-});
-
-=======
 const { 
   Client, GatewayIntentBits,
   Events,
@@ -29,31 +20,26 @@ const categoryChannels = {
   contact: "1418268123752169502"   // #連絡
 };
 
-// 各カテゴリの通知ロール
 const categoryRoles = {
-  report: "1418267211054977084",   // 業務報告通知ロール
-  consult: "1418267211054977084",  // 相談通知ロール
-  contact: "1418267211054977084"   // 連絡通知ロール
+  report: "1418267211054977084",
+  consult: "1418267211054977084",
+  contact: "1418267211054977084"
 };
 
-// 報告者ID → 報告履歴配列
 const reportMap = new Map();
 
-// 緊急度ごとの色と絵文字
 const urgencyInfo = {
   低: { color: 0x57F287, emoji: '🟢' },
   中: { color: 0xFEE75C, emoji: '🟡' },
   高: { color: 0xED4245, emoji: '🔴' }
 };
 
-// --- BOT起動 ---
+// --- BOT起動 --- //
 client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
-// --- スラッシュコマンド /horenso ---
 client.on(Events.InteractionCreate, async (interaction) => {
-
   // コマンド: カテゴリ選択
   if (interaction.isChatInputCommand() && interaction.commandName === 'horenso') {
     const categorySelect = new StringSelectMenuBuilder()
@@ -69,9 +55,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
-  // --------------------------
   // 1. カテゴリ選択
-  // --------------------------
   if (interaction.isSelectMenu() && interaction.customId === 'categorySelect') {
     await interaction.deferUpdate();
     const selectedCategory = interaction.values[0];
@@ -92,9 +76,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
-  // --------------------------
   // 2. 緊急度選択
-  // --------------------------
   if (interaction.isSelectMenu() && interaction.customId === 'urgencySelect') {
     await interaction.deferUpdate();
     const urgency = interaction.values[0];
@@ -120,9 +102,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
-  // --------------------------
   // 3. モーダル送信（報告）
-  // --------------------------
   if (interaction.isModalSubmit() && interaction.customId === 'reportContentModal') {
     const content = interaction.fields.getTextInputValue('content');
     const user = interaction.user;
@@ -135,7 +115,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (!channel) return interaction.reply({ content: '送信先チャンネルが存在しません', ephemeral: true });
 
     const { color, emoji } = urgencyInfo[tmp.urgency];
-
     const reportId = Date.now();
     tmp.messageId = reportId;
 
@@ -152,7 +131,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       .setLabel('返信する')
       .setStyle(ButtonStyle.Primary);
 
-    // --- カテゴリロールにメンション ---
     const roleId = categoryRoles[tmp.category];
     await channel.send({
       content: `<@&${roleId}>`,
@@ -164,9 +142,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
-  // --------------------------
   // 4. 返信ボタン
-  // --------------------------
   if (interaction.isButton() && interaction.customId.startsWith('reply-')) {
     const parts = interaction.customId.split('-');
     const targetUserId = parts[1];
@@ -187,9 +163,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
-  // --------------------------
   // 5. 返信モーダル送信
-  // --------------------------
   if (interaction.isModalSubmit() && interaction.customId.startsWith('replyModal-')) {
     const parts = interaction.customId.split('-');
     const targetUserId = parts[1];
@@ -198,8 +172,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const replyContent = interaction.fields.getTextInputValue('replyContent');
     const replier = interaction.user;
 
-    const replyChannel = interaction.guild.channels.cache.get(replyChannels[targetUserId])
-                         || await interaction.guild.channels.fetch(replyChannels[targetUserId]);
+    // replyChannels は未定義だったので一旦 categoryChannels を利用する
+    const replyChannel = interaction.guild.channels.cache.get(categoryChannels.report)
+                         || await interaction.guild.channels.fetch(categoryChannels.report);
+
     if (!replyChannel) return interaction.reply({ content: '返信先チャンネルが存在しません', ephemeral: true });
 
     const userReports = reportMap.get(targetUserId);
@@ -217,5 +193,4 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 // --- BOTログイン ---
->>>>>>> 1a2d3200b293165706b13eec6bdb21443a06a3be
 client.login(process.env.TOKEN);
