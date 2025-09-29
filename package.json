@@ -12,3 +12,9 @@
     "node": "18.x"
   }
 }
+{
+  "scripts": {
+    "start": "node index.js",
+    "deploy-commands": "node deploy-commands.js"
+  }
+}
