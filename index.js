@@ -1,3 +1,8 @@
+console.log("TOKEN:", process.env.TOKEN?.slice(0, 4) + "…");
+
+client.login(process.env.TOKEN);
+
+
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } = require('discord.js');
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
