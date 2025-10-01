@@ -1,96 +1,62 @@
-const { 
-  Client, 
-  GatewayIntentBits, 
-  ActionRowBuilder, 
-  StringSelectMenuBuilder, 
-  ModalBuilder, 
-  TextInputBuilder, 
-  TextInputStyle, 
-  InteractionType 
-} = require('discord.js');
-require('dotenv').config();
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } = require('discord.js');
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const TOKEN = 'YOUR_BOT_TOKEN';
 
-client.once("ready", () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
+// 起動時
+client.once('ready', () => {
+    console.log(`Logged in as ${client.user.tag}!`);
 });
 
-// /horenso コマンド処理
-client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
+// メッセージ送信時の処理（例: ボタン付きでフォーム開始）
+client.on('messageCreate', async (message) => {
+    if (message.author.bot) return;
 
-  if (interaction.commandName === "horenso") {
-    await interaction.reply({
-      content: "📋 報連相フォームを開始します！",
-      components: [
-        new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId("category")
-            .setPlaceholder("カテゴリを選んでください")
-            .addOptions([
-              { label: "報告", value: "report" },
-              { label: "連絡", value: "contact" },
-              { label: "相談", value: "consult" },
-            ])
-        )
-      ]
-    });
-  }
+    // 特定コマンドでフォーム開始
+    if (message.content === '!form') {
+        // ボタンを作成
+        const startButton = new ButtonBuilder()
+            .setCustomId('start_form')
+            .setLabel('📋 報連相フォームを開始')
+            .setStyle(ButtonStyle.Primary);
+
+        const row = new ActionRowBuilder().addComponents(startButton);
+
+        await message.reply({ content: 'フォームを開始するにはボタンを押してください', components: [row] });
+    }
 });
 
-// カテゴリ選択処理
-client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isStringSelectMenu()) return;
+// ボタン・セレクトメニューの処理
+client.on('interactionCreate', async (interaction) => {
+    try {
+        // ボタンが押された場合
+        if (interaction.isButton()) {
+            if (interaction.customId === 'start_form') {
+                // セレクトメニュー作成
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId('report_category')
+                    .setPlaceholder('カテゴリを選んでください')
+                    .addOptions([
+                        { label: '質問', value: 'question' },
+                        { label: '相談', value: 'consult' },
+                        { label: '報告', value: 'report' },
+                    ]);
 
-  if (interaction.customId === "category") {
-    const category = interaction.values[0];
-    await interaction.update({
-      content: `カテゴリ **${category}** が選択されました。次に緊急度を選んでください。`,
-      components: [
-        new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId("priority")
-            .setPlaceholder("緊急度を選んでください")
-            .addOptions([
-              { label: "高", value: "high" },
-              { label: "中", value: "medium" },
-              { label: "低", value: "low" },
-            ])
-        )
-      ]
-    });
-  }
+                const row = new ActionRowBuilder().addComponents(selectMenu);
 
-  if (interaction.customId === "priority") {
-    const priority = interaction.values[0];
+                await interaction.reply({ content: '📋 報連相フォームを開始します！カテゴリを選んでください。', components: [row], ephemeral: true });
+            }
+        }
 
-    // モーダル（内容入力フォーム）
-    const modal = new ModalBuilder()
-      .setCustomId("horensoForm")
-      .setTitle("報連相内容");
-
-    const input = new TextInputBuilder()
-      .setCustomId("content")
-      .setLabel("内容を入力してください")
-      .setStyle(TextInputStyle.Paragraph);
-
-    modal.addComponents(new ActionRowBuilder().addComponents(input));
-
-    await interaction.showModal(modal);
-  }
+        // セレクトメニューが選択された場合
+        if (interaction.isStringSelectMenu()) {
+            if (interaction.customId === 'report_category') {
+                await interaction.update({ content: `✅ 選択されたカテゴリ: ${interaction.values[0]}`, components: [] });
+            }
+        }
+    } catch (err) {
+        console.error('Interaction error:', err);
+    }
 });
 
-// モーダル処理（内容送信）
-client.on("interactionCreate", async (interaction) => {
-  if (interaction.type !== InteractionType.ModalSubmit) return;
-  if (interaction.customId === "horensoForm") {
-    const content = interaction.fields.getTextInputValue("content");
-
-    await interaction.reply({
-      content: `✅ フォームが送信されました！\n内容: ${content}`
-    });
-  }
-});
-
-client.login(process.env.TOKEN);
+client.login(TOKEN);
