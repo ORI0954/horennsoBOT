@@ -1,7 +1,7 @@
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } = require('discord.js');
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-const TOKEN = 'YOUR_BOT_TOKEN';
+const TOKEN = 'TOKEN';
 
 // 起動時
 client.once('ready', () => {
