@@ -7,11 +7,10 @@
     "deploy-commands": "node deploy-commands.js"
   },
   "dependencies": {
-    "discord.js": "^14.14.1",
+    "discord.js": "^14.14.1"
   },
   "engines": {
-  "node": "22.x",
-  "npm": "10.x"
-}
-
+    "node": "22.x",
+    "npm": "10.x"
+  }
 }
