@@ -11,269 +11,235 @@ const {
   ButtonStyle,
   ModalBuilder,
   TextInputBuilder,
-  TextInputStyle,
-  EmbedBuilder,
-  ChannelType
-} = require('discord.js');
+  TextInputStyle
+} = require("discord.js");
 
-const TOKEN = process.env.DISCORD_TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
-const GUILD_ID = process.env.GUILD_ID;
-const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID;
-const ALERT_ROLE_ID = process.env.ALERT_ROLE_ID; // 緊急度「高」のときにメンションするロール
+// --- 環境変数 ---
+const TOKEN = process.env.DISCORD_TOKEN;          // Bot Token
+const CLIENT_ID = process.env.CLIENT_ID;          // Application ID
+const GUILD_ID = process.env.GUILD_ID;            // Guild ID
+const REPORT_CHANNEL_ID = process.env.REPORT_CHANNEL_ID; // 報連相送信先チャンネル
+const REPLY_CATEGORY_ID = process.env.REPLY_CATEGORY_ID; // 返信用カテゴリ
+const ALERT_ROLE_ID = process.env.ALERT_ROLE_ID;        // 緊急度「高」用ロール
 
-if (!TOKEN || !CLIENT_ID || !GUILD_ID || !REPORT_CHANNEL_ID) {
-  console.error("❌ 必要な環境変数が足りません。DISCORD_TOKEN, CLIENT_ID, GUILD_ID, REPORT_CHANNEL_ID, ALERT_ROLE_ID を確認してください。");
+if (!TOKEN || !CLIENT_ID || !GUILD_ID || !REPORT_CHANNEL_ID || !REPLY_CATEGORY_ID) {
+  console.error("❌ 必須環境変数が不足しています。");
   process.exit(1);
 }
 
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
-});
+const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// --- スラッシュコマンド定義 ---
+// --- コマンド登録 ---
 const commands = [
   new SlashCommandBuilder()
-    .setName('horenso')
-    .setDescription('報連相フォームを開始します')
-    .toJSON(),
-  new SlashCommandBuilder()
-    .setName('horenso-button')
-    .setDescription('報連相開始ボタンを設置します')
+    .setName("horenso_button")
+    .setDescription("報連相開始ボタンを設置します")
     .toJSON()
 ];
-
-const rest = new REST({ version: '10' }).setToken(TOKEN);
+const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 async function registerCommands() {
-  try {
-    await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: commands }
-    );
-    console.log("✅ スラッシュコマンド登録完了！");
-  } catch (err) {
-    console.error("❌ コマンド登録失敗:", err);
-  }
+  await rest.put(
+    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+    { body: commands }
+  );
+  console.log("✅ スラッシュコマンド登録完了");
 }
 
-// --- 一時データ保持 ---
-const sessionData = new Map();
-
-// --- Bot起動時 ---
+// --- Bot起動 ---
 client.once(Events.ClientReady, async (c) => {
   console.log(`🤖 ログイン完了: ${c.user.tag}`);
   await registerCommands();
 });
 
-// --- コマンド実行 ---
+// --- スラッシュコマンド実行 ---
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
-
-  if (interaction.commandName === 'horenso') {
-    startHorenso(interaction);
-  }
-
-  if (interaction.commandName === 'horenso-button') {
-    const startButton = new ButtonBuilder()
-      .setCustomId('start_horenso')
-      .setLabel("📋 報連相を開始する")
-      .setStyle(ButtonStyle.Success);
-
+  if (interaction.commandName === "horenso_button") {
     await interaction.reply({
-      content: "こちらから報連相を開始できます！",
-      components: [new ActionRowBuilder().addComponents(startButton)]
+      content: "📋 報連相を開始するには下のボタンを押してください！",
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("startHorenso")
+            .setLabel("報連相開始")
+            .setStyle(ButtonStyle.Primary)
+        )
+      ]
     });
   }
 });
 
-// --- ボタンで開始 ---
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isButton()) return;
+// --- 報連相フォームの流れ ---
+const userSessions = new Map();
 
-  if (interaction.customId === 'start_horenso') {
-    startHorenso(interaction);
+client.on(Events.InteractionCreate, async (interaction) => {
+  // ボタン「報連相開始」
+  if (interaction.isButton() && interaction.customId === "startHorenso") {
+    userSessions.set(interaction.user.id, { step: "category" });
+    await interaction.reply({
+      content: "📌 カテゴリを選択してください",
+      components: [
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("selectCategory")
+            .setPlaceholder("カテゴリを選択")
+            .addOptions(
+              { label: "業務", value: "業務" },
+              { label: "トラブル", value: "トラブル" },
+              { label: "その他", value: "その他" }
+            )
+        )
+      ],
+      ephemeral: true
+    });
   }
-});
 
-// --- 報連相開始処理 ---
-async function startHorenso(interaction) {
-  const categorySelect = new StringSelectMenuBuilder()
-    .setCustomId('select_category')
-    .setPlaceholder('カテゴリを選択してください')
-    .addOptions(
-      { label: '業務連絡', value: '業務連絡' },
-      { label: '相談', value: '相談' },
-      { label: '報告', value: '報告' }
-    );
-
-  await interaction.reply({
-    content: "📋 まずカテゴリを選んでください",
-    components: [new ActionRowBuilder().addComponents(categorySelect)],
-    ephemeral: true
-  });
-}
-
-// --- セレクト処理 ---
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isStringSelectMenu()) return;
-
-  const userId = interaction.user.id;
-
-  if (interaction.customId === 'select_category') {
-    sessionData.set(userId, { category: interaction.values[0] });
-
-    const urgencySelect = new StringSelectMenuBuilder()
-      .setCustomId('select_urgency')
-      .setPlaceholder('緊急度を選択してください')
-      .addOptions(
-        { label: '高', value: '高' },
-        { label: '中', value: '中' },
-        { label: '低', value: '低' }
-      );
-
+  // カテゴリ選択
+  if (interaction.isStringSelectMenu() && interaction.customId === "selectCategory") {
+    userSessions.set(interaction.user.id, {
+      step: "urgency",
+      category: interaction.values[0]
+    });
     await interaction.update({
-      content: `✅ カテゴリ: ${interaction.values[0]}\n次に緊急度を選んでください`,
-      components: [new ActionRowBuilder().addComponents(urgencySelect)]
+      content: "⚡ 緊急度を選択してください",
+      components: [
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId("selectUrgency")
+            .setPlaceholder("緊急度を選択")
+            .addOptions(
+              { label: "高", value: "高" },
+              { label: "中", value: "中" },
+              { label: "低", value: "低" }
+            )
+        )
+      ]
     });
   }
 
-  else if (interaction.customId === 'select_urgency') {
-    const data = sessionData.get(userId);
-    data.urgency = interaction.values[0];
+  // 緊急度選択
+  if (interaction.isStringSelectMenu() && interaction.customId === "selectUrgency") {
+    const session = userSessions.get(interaction.user.id);
+    if (!session) return;
+
+    session.urgency = interaction.values[0];
+    session.step = "content";
 
     const modal = new ModalBuilder()
-      .setCustomId('input_content')
-      .setTitle('相談内容入力')
+      .setCustomId("horensoContent")
+      .setTitle("相談内容入力")
       .addComponents(
         new ActionRowBuilder().addComponents(
           new TextInputBuilder()
-            .setCustomId('content')
-            .setLabel('相談内容を入力してください')
+            .setCustomId("contentInput")
+            .setLabel("相談内容")
             .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true)
         )
       );
 
     await interaction.showModal(modal);
   }
-});
 
-// --- モーダル処理（報連相送信） ---
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isModalSubmit()) return;
-  if (interaction.customId !== 'input_content') return;
+  // 相談内容送信
+  if (interaction.isModalSubmit() && interaction.customId === "horensoContent") {
+    const session = userSessions.get(interaction.user.id);
+    if (!session) return;
 
-  const userId = interaction.user.id;
-  const data = sessionData.get(userId);
-  data.content = interaction.fields.getTextInputValue('content');
+    const content = interaction.fields.getTextInputValue("contentInput");
+    session.content = content;
 
-  const reportChannel = await client.channels.fetch(REPORT_CHANNEL_ID);
+    const reportChannel = await client.channels.fetch(REPORT_CHANNEL_ID);
+    if (!reportChannel) {
+      await interaction.reply({ content: "❌ 報告チャンネルが見つかりません。", ephemeral: true });
+      return;
+    }
 
-  const embed = new EmbedBuilder()
-    .setTitle("📢 新しい報連相")
-    .addFields(
-      { name: "カテゴリ", value: data.category, inline: true },
-      { name: "緊急度", value: data.urgency, inline: true },
-      { name: "内容", value: data.content }
-    )
-    .setFooter({ text: `送信者: ${interaction.user.tag}` })
-    .setTimestamp();
+    const mentionRole = session.urgency === "高" && ALERT_ROLE_ID ? `<@&${ALERT_ROLE_ID}> ` : "";
 
-  const replyButton = new ButtonBuilder()
-    .setCustomId(`reply_${userId}`)
-    .setLabel("返信する")
-    .setStyle(ButtonStyle.Primary);
+    const sent = await reportChannel.send({
+      content: `${mentionRole}📋 **報連相が届きました**\n\n` +
+        `カテゴリ: ${session.category}\n` +
+        `緊急度: ${session.urgency}\n` +
+        `相談者: <@${interaction.user.id}>\n` +
+        `内容:\n${session.content}`,
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`replyBtn_${interaction.user.id}`)
+            .setLabel("返信する")
+            .setStyle(ButtonStyle.Success)
+        )
+      ]
+    });
 
-  let content = "";
-  if (data.urgency === "高" && ALERT_ROLE_ID) {
-    content = `<@&${ALERT_ROLE_ID}> ⚠️ 緊急度「高」の報連相があります`;
+    await interaction.reply({ content: "✅ 報連相を送信しました！", ephemeral: true });
+    userSessions.delete(interaction.user.id);
   }
 
-  await reportChannel.send({
-    content,
-    embeds: [embed],
-    components: [new ActionRowBuilder().addComponents(replyButton)]
-  });
+  // 返信ボタン押下
+  if (interaction.isButton() && interaction.customId.startsWith("replyBtn_")) {
+    const originalUserId = interaction.customId.split("_")[1];
 
-  await interaction.reply({ content: "✅ 報連相を送信しました！", ephemeral: true });
-  sessionData.delete(userId);
-});
+    const channels = interaction.guild.channels.cache
+      .filter(ch => ch.parentId === REPLY_CATEGORY_ID && ch.isTextBased());
 
-// --- 返信ボタン処理 ---
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isButton()) return;
-  if (!interaction.customId.startsWith("reply_")) return;
+    const options = channels.map(ch => ({ label: ch.name, value: ch.id }));
 
-  const targetUserId = interaction.customId.split("_")[1];
-
-  const guild = await client.guilds.fetch(GUILD_ID);
-  const channels = guild.channels.cache
-    .filter(ch => ch.type === ChannelType.GuildText);
-
-  const channelSelect = new StringSelectMenuBuilder()
-    .setCustomId(`select_reply_channel_${targetUserId}`)
-    .setPlaceholder('返信先チャンネルを選択してください')
-    .addOptions(
-      channels.map(ch => ({ label: ch.name, value: ch.id }))
-    );
-
-  await interaction.reply({
-    content: "返信を送信するチャンネルを選んでください",
-    components: [new ActionRowBuilder().addComponents(channelSelect)],
-    ephemeral: true
-  });
-});
-
-// --- チャンネル選択後（返信用） ---
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isStringSelectMenu()) return;
-  if (!interaction.customId.startsWith("select_reply_channel_")) return;
-
-  const targetUserId = interaction.customId.split("_")[3];
-  const channelId = interaction.values[0];
-
-  const modal = new ModalBuilder()
-    .setCustomId(`send_reply_${targetUserId}_${channelId}`)
-    .setTitle('返信入力')
-    .addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('reply_message')
-          .setLabel('返信内容を入力してください')
-          .setStyle(TextInputStyle.Paragraph)
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('mention')
-          .setLabel('メンションする？(yes/no)')
-          .setStyle(TextInputStyle.Short)
-      )
-    );
-
-  await interaction.showModal(modal);
-});
-
-// --- 返信送信処理 ---
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isModalSubmit()) return;
-  if (!interaction.customId.startsWith("send_reply_")) return;
-
-  const parts = interaction.customId.split("_");
-  const targetUserId = parts[2];
-  const channelId = parts[3];
-
-  const message = interaction.fields.getTextInputValue('reply_message');
-  const mentionChoice = interaction.fields.getTextInputValue('mention').toLowerCase();
-
-  let replyText = message;
-  if (mentionChoice === "yes") {
-    replyText = `<@${targetUserId}> ${message}`;
+    await interaction.reply({
+      content: "📌 返信先チャンネルを選択してください",
+      components: [
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(`selectReplyChannel_${originalUserId}`)
+            .setPlaceholder("返信先チャンネルを選択")
+            .addOptions(options)
+        )
+      ],
+      ephemeral: true
+    });
   }
 
-  const channel = await client.channels.fetch(channelId);
-  await channel.send(replyText);
+  // 返信チャンネル選択
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith("selectReplyChannel_")) {
+    const originalUserId = interaction.customId.split("_")[1];
+    const channelId = interaction.values[0];
 
-  await interaction.reply({ content: "✅ 返信を送信しました！", ephemeral: true });
+    const modal = new ModalBuilder()
+      .setCustomId(`replyContent_${originalUserId}_${channelId}`)
+      .setTitle("返信内容入力")
+      .addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("replyInput")
+            .setLabel("返信メッセージ")
+            .setStyle(TextInputStyle.Paragraph)
+            .setRequired(true)
+        )
+      );
+
+    await interaction.showModal(modal);
+  }
+
+  // 返信内容送信
+  if (interaction.isModalSubmit() && interaction.customId.startsWith("replyContent_")) {
+    const [, originalUserId, channelId] = interaction.customId.split("_");
+    const replyContent = interaction.fields.getTextInputValue("replyInput");
+
+    const targetChannel = await client.channels.fetch(channelId);
+    if (!targetChannel) {
+      await interaction.reply({ content: "❌ チャンネルが見つかりません。", ephemeral: true });
+      return;
+    }
+
+    await targetChannel.send({
+      content: `📢 返信: ${replyContent}\n👉 <@${originalUserId}>`
+    });
+
+    await interaction.reply({ content: "✅ 返信を送信しました！", ephemeral: true });
+  }
 });
 
+// --- Botログイン ---
 client.login(TOKEN);
