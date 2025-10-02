@@ -134,61 +134,65 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 
   // --- 返信ボタン押下 ---
-  if (interaction.isButton() && interaction.customId === 'horenso_reply') {
-    const guild = interaction.guild;
-    const channels = guild.channels.cache
-      .filter(ch => ch.type === 0 && ch.parentId === REPLY_CATEGORY_ID)
-      .map(ch => ({ label: ch.name, value: ch.id }));
+if (interaction.isButton() && interaction.customId === 'horenso_reply') {
+  const guild = interaction.guild;
+  const channels = guild.channels.cache
+    .filter(ch => ch.type === 0 && ch.parentId === REPLY_CATEGORY_ID)
+    .map(ch => ({ label: ch.name, value: ch.id }));
 
-    if (!channels.length) {
-      await interaction.reply({ content: '❌ 指定カテゴリ内にチャンネルがありません', ephemeral: true });
-      return;
-    }
-
-    const selectRow = new ActionRowBuilder()
-      .addComponents(new StringSelectMenuBuilder()
-        .setCustomId('horenso_reply_channel')
-        .setPlaceholder('返信先チャンネルを選択')
-        .addOptions(channels)
-      );
-
-    await interaction.reply({ content: '返信先チャンネルを選択してください', components: [selectRow], ephemeral: true });
+  if (!channels.length) {
+    await interaction.reply({ content: '❌ 指定カテゴリ内にチャンネルがありません', ephemeral: true });
+    return;
   }
 
-  // --- 返信先選択後 ---
-  if (interaction.isStringSelectMenu() && interaction.customId === 'horenso_reply_channel') {
-    const channelId = interaction.values[0];
-    const replyChannel = await client.channels.fetch(channelId);
+  const selectRow = new ActionRowBuilder()
+    .addComponents(new StringSelectMenuBuilder()
+      .setCustomId('horenso_reply_channel')
+      .setPlaceholder('返信先チャンネルを選択')
+      .addOptions(channels)
+    );
 
-    const modal = new ModalBuilder()
-      .setCustomId(`horenso_reply_modal|${channelId}`)
-      .setTitle('返信内容入力');
+  // この時点では deferUpdate してモーダルのために interaction を解放
+  await interaction.update({ content: '返信先チャンネルを選択してください', components: [selectRow] });
+}
 
-    const replyInput = new TextInputBuilder()
-      .setCustomId('reply_content')
-      .setLabel('返信')
-      .setStyle(TextInputStyle.Paragraph)
-      .setRequired(true);
+// --- 返信先選択後 ---
+if (interaction.isStringSelectMenu() && interaction.customId === 'horenso_reply_channel') {
+  const channelId = interaction.values[0];
 
-    modal.addComponents(new ActionRowBuilder().addComponents(replyInput));
-    await interaction.showModal(modal);
-  }
+  const modal = new ModalBuilder()
+    .setCustomId(`horenso_reply_modal|${channelId}`)
+    .setTitle('返信内容入力');
 
-  // --- 返信送信 ---
-  if (interaction.isModalSubmit() && interaction.customId.startsWith('horenso_reply_modal')) {
-    const channelId = interaction.customId.split('|')[1];
-    const replyChannel = await client.channels.fetch(channelId);
-    const replyContent = interaction.fields.getTextInputValue('reply_content');
+  const replyInput = new TextInputBuilder()
+    .setCustomId('reply_content')
+    .setLabel('返信')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(true);
 
-    const message = await interaction.message.fetch();
-    const originalContent = message.content.split('\n💬 内容（')[1]?.split('）：\n')[1] || '内容取得失敗';
-    const categoryLine = message.content.split('\n')[1];
+  modal.addComponents(new ActionRowBuilder().addComponents(replyInput));
 
-    const finalContent = `📣 **返信**\n─────────────\n${categoryLine}\n💬 内容:\n${originalContent}\n\n💬 返信:\n${replyContent}`;
+  // deferUpdateしてからモーダル表示
+  await interaction.deferUpdate();
+  await interaction.showModal(modal);
+}
 
-    await replyChannel.send({ content: finalContent });
-    await interaction.reply({ content: '✅ 返信を送信しました', ephemeral: true });
-  }
+// --- 返信送信 ---
+if (interaction.isModalSubmit() && interaction.customId.startsWith('horenso_reply_modal')) {
+  const channelId = interaction.customId.split('|')[1];
+  const replyChannel = await client.channels.fetch(channelId);
+  const replyContent = interaction.fields.getTextInputValue('reply_content');
+
+  const originalMessage = await interaction.message.fetch();
+  const originalContent = originalMessage.content.split('\n💬 内容（')[1]?.split('）：\n')[1] || '内容取得失敗';
+  const categoryLine = originalMessage.content.split('\n')[1];
+
+  const finalContent = `📣 **返信**\n─────────────\n${categoryLine}\n💬 内容:\n${originalContent}\n\n💬 返信:\n${replyContent}`;
+
+  await replyChannel.send({ content: finalContent });
+  await interaction.reply({ content: '✅ 返信を送信しました', ephemeral: true });
+}
+
 
 });
 
