@@ -1,25 +1,28 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, Events, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, InteractionType } = require('discord.js');
+const { 
+  Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, Events, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder 
+} = require('discord.js');
 
 // --- 環境変数 ---
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const GUILD_ID = process.env.GUILD_ID;
-const HORNSO_CHANNEL_ID = process.env.HORNSO_CHANNEL_ID;
-const EMERGENCY_ROLE_ID = process.env.EMERGENCY_ROLE_ID;
+const HORNSO_CHANNEL_ID = process.env.HORNSO_CHANNEL_ID; // 報連相送信先チャンネル
+const EMERGENCY_ROLE_ID = process.env.EMERGENCY_ROLE_ID; // 緊急時ロールID
+const REPLY_CATEGORY_ID = process.env.REPLY_CATEGORY_ID; // 返信選択用カテゴリID
 
-if (!TOKEN || !CLIENT_ID || !GUILD_ID || !HORNSO_CHANNEL_ID || !EMERGENCY_ROLE_ID) {
+if (!TOKEN || !CLIENT_ID || !GUILD_ID || !HORNSO_CHANNEL_ID || !EMERGENCY_ROLE_ID || !REPLY_CATEGORY_ID) {
   console.error("❌ 必須環境変数が不足しています。");
   process.exit(1);
 }
 
 // --- クライアント作成 ---
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 
-// --- スラッシュコマンド登録 ---
+// --- コマンド登録 ---
 const commands = [
   new SlashCommandBuilder()
-    .setName('horenso-button')
-    .setDescription('報連相ボタンを設置します')
+    .setName('horenso_button')
+    .setDescription('報連相開始ボタンを作成')
     .toJSON()
 ];
 
@@ -27,8 +30,11 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 async function registerCommands() {
   try {
-    console.log("⏳ スラッシュコマンドを登録中...");
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
+    console.log("⏳ スラッシュコマンド登録中...");
+    await rest.put(
+      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+      { body: commands }
+    );
     console.log("✅ スラッシュコマンド登録完了！");
   } catch (err) {
     console.error("❌ コマンド登録に失敗:", err);
@@ -41,102 +47,142 @@ client.once(Events.ClientReady, async (c) => {
   await registerCommands();
 });
 
-// --- スラッシュコマンド処理 ---
+// --- スラッシュコマンド実行 ---
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === 'horenso-button') {
-    const button = new ButtonBuilder()
-      .setCustomId('horenso_start')
-      .setLabel('📋 報連相を開始')
-      .setStyle(ButtonStyle.Primary);
+  // ボタン作成
+  if (interaction.commandName === 'horenso_button') {
+    const row = new ActionRowBuilder()
+      .addComponents(
+        new ButtonBuilder()
+          .setCustomId('horenso_start')
+          .setLabel('📋 報連相を開始')
+          .setStyle(ButtonStyle.Primary)
+      );
 
-    const row = new ActionRowBuilder().addComponents(button);
-
-    await interaction.reply({ content: 'ボタンを押して報連相フォームを開始してください', components: [row], ephemeral: true });
+    await interaction.reply({ content: 'ボタンを設置しました！', components: [row], ephemeral: false });
   }
 });
 
-// --- ボタン押下処理 ---
+// --- ボタン押下時 ---
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
 
   if (interaction.customId === 'horenso_start') {
-    // カテゴリ選択メニュー
-    const categorySelect = new StringSelectMenuBuilder()
-      .setCustomId('horenso_category')
-      .setPlaceholder('カテゴリを選択してください')
-      .addOptions([
-        { label: '業務', value: 'business' },
-        { label: 'トラブル', value: 'trouble' },
-        { label: 'その他', value: 'other' }
-      ]);
+    // カテゴリ選択
+    const categoryRow = new ActionRowBuilder()
+      .addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId('horenso_category')
+          .setPlaceholder('カテゴリを選択')
+          .addOptions([
+            { label: '業務関連', value: '業務関連' },
+            { label: 'トラブル対応', value: 'トラブル対応' },
+            { label: 'その他', value: 'その他' },
+          ])
+      );
 
-    const row = new ActionRowBuilder().addComponents(categorySelect);
-
-    await interaction.reply({ content: '📋 カテゴリを選択してください', components: [row], ephemeral: true });
-  }
-});
-
-// --- セレクトメニュー選択 ---
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isStringSelectMenu()) return;
-
-  if (interaction.customId === 'horenso_category') {
-    const selectedCategory = interaction.values[0];
-
-    const emergencySelect = new StringSelectMenuBuilder()
-      .setCustomId(`horenso_emergency_${selectedCategory}`)
-      .setPlaceholder('緊急度を選択してください')
-      .addOptions([
-        { label: '高', value: 'high' },
-        { label: '中', value: 'medium' },
-        { label: '低', value: 'low' }
-      ]);
-
-    const row = new ActionRowBuilder().addComponents(emergencySelect);
-
-    await interaction.update({ content: `カテゴリ: ${selectedCategory}\n次に緊急度を選択してください`, components: [row] });
-  } else if (interaction.customId.startsWith('horenso_emergency_')) {
-    const category = interaction.customId.replace('horenso_emergency_', '');
-    const emergency = interaction.values[0];
-
-    const modal = new ModalBuilder()
-      .setCustomId(`horenso_modal_${category}_${emergency}`)
-      .setTitle('報連相 相談内容入力');
-
-    const input = new TextInputBuilder()
-      .setCustomId('horenso_content')
-      .setLabel('相談内容')
-      .setStyle(TextInputStyle.Paragraph)
-      .setPlaceholder('ここに相談内容を入力してください')
-      .setRequired(true);
-
-    const row = new ActionRowBuilder().addComponents(input);
-    modal.addComponents(row);
-
-    await interaction.showModal(modal);
-  }
-});
-
-// --- モーダル送信処理 ---
-client.on(Events.InteractionCreate, async (interaction) => {
-  if (interaction.type !== InteractionType.ModalSubmit) return;
-  if (!interaction.customId.startsWith('horenso_modal_')) return;
-
-  const [_, category, emergency] = interaction.customId.split('_').slice(1, 4);
-  const content = interaction.fields.getTextInputValue('horenso_content');
-
-  const channel = await client.channels.fetch(HORNSO_CHANNEL_ID);
-
-  let msgContent = `📌 **報連相**\n- カテゴリ: ${category}\n- 緊急度: ${emergency}\n- 内容: ${content}\n- 投稿者: <@${interaction.user.id}>`;
-  if (emergency === 'high') {
-    msgContent = `<@&${EMERGENCY_ROLE_ID}> ` + msgContent;
+    await interaction.reply({ content: 'カテゴリを選択してください', components: [categoryRow], ephemeral: true });
   }
 
-  await channel.send({ content: msgContent });
+  // カテゴリ選択後
+  if (interaction.isStringSelectMenu() && interaction.customId === 'horenso_category') {
+    const category = interaction.values[0];
 
-  await interaction.reply({ content: '✅ 報連相を送信しました。', ephemeral: true });
+    // 緊急度選択
+    const urgencyRow = new ActionRowBuilder()
+      .addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`horenso_urgency|${category}`)
+          .setPlaceholder('緊急度を選択')
+          .addOptions([
+            { label: '緊急', value: '緊急' },
+            { label: 'そうでもない', value: 'そうでもない' },
+          ])
+      );
+
+    await interaction.update({ content: `カテゴリ: **${category}**\n緊急度を選択してください`, components: [urgencyRow] });
+  }
+
+  // 緊急度選択後
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('horenso_urgency')) {
+    const [_, category] = interaction.customId.split('|');
+    const urgency = interaction.values[0];
+
+    // 相談内容入力
+    await interaction.update({ content: '💬 相談内容をこのチャンネルで入力してください（他人には見えません）', components: [], ephemeral: true });
+
+    const filter = m => m.author.id === interaction.user.id;
+    const collector = interaction.channel.createMessageCollector({ filter, max: 1, time: 5 * 60 * 1000 });
+
+    collector.on('collect', async m => {
+      const reportChannel = await client.channels.fetch(HORNSO_CHANNEL_ID);
+
+      let content = `📌 **報連相**\n─────────────\nカテゴリ: **${category}**\n緊急度: **${urgency}**\n💬 内容:\n${m.content}`;
+
+      if (urgency === '緊急') content = `<@&${EMERGENCY_ROLE_ID}> ` + content;
+
+      const row = new ActionRowBuilder()
+        .addComponents(
+          new ButtonBuilder()
+            .setCustomId(`horenso_reply|${category}`)
+            .setLabel('💬 返信する')
+            .setStyle(ButtonStyle.Secondary)
+        );
+
+      await reportChannel.send({ content, components: [row] });
+      await interaction.followUp({ content: '✅ 報連相を送信しました！', ephemeral: true });
+    });
+  }
+
+  // 返信ボタン押下時
+  if (interaction.isButton() && interaction.customId.startsWith('horenso_reply')) {
+    const [_, category] = interaction.customId.split('|');
+
+    // 返信先選択メニュー作成（カテゴリ内チャンネル）
+    const guild = interaction.guild;
+    const channels = guild.channels.cache
+      .filter(ch => ch.type === 0 && ch.parentId === REPLY_CATEGORY_ID) // type 0 = text
+      .map(ch => ({ label: ch.name, value: ch.id }));
+
+    if (channels.length === 0) {
+      await interaction.reply({ content: '❌ 指定カテゴリ内にチャンネルがありません', ephemeral: true });
+      return;
+    }
+
+    const selectRow = new ActionRowBuilder()
+      .addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`horenso_reply_channel|${category}`)
+          .setPlaceholder('返信先チャンネルを選択')
+          .addOptions(channels)
+      );
+
+    await interaction.reply({ content: '返信先チャンネルを選択してください', components: [selectRow], ephemeral: true });
+  }
+
+  // 返信先チャンネル選択後
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('horenso_reply_channel')) {
+    const [_, category] = interaction.customId.split('|');
+    const channelId = interaction.values[0];
+    const replyChannel = await client.channels.fetch(channelId);
+
+    await interaction.reply({ content: '💬 返信内容を入力してください', ephemeral: true });
+
+    const filter = m => m.author.id === interaction.user.id;
+    const collector = interaction.channel.createMessageCollector({ filter, max: 1, time: 5 * 60 * 1000 });
+
+    collector.on('collect', async m => {
+      const original = await interaction.message.fetch(); // 元報連相メッセージ
+      const originalContent = original.content.split('\n💬 内容:\n')[1];
+
+      const content = `📣 **返信**\n─────────────\nカテゴリ: **${category}**\n💬 内容:\n${originalContent}\n\n💬 返信:\n${m.content}`;
+
+      await replyChannel.send({ content });
+      await interaction.followUp({ content: '✅ 返信を送信しました', ephemeral: true });
+    });
+  }
 });
 
 // --- Botログイン ---
