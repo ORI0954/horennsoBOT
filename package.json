@@ -7,8 +7,7 @@
     "deploy-commands": "node deploy-commands.js"
   },
   "dependencies": {
-    "discord.js": "^14.17.0",
-    "uuid": "^9.0.0"
+    "discord.js": "^14.14.1"
   },
   "engines": {
     "node": "22.x",
